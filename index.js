@@ -1,43 +1,38 @@
 const { Client } = require('discord.js-selfbot-v13');
-const { joinVoiceChannel, createAudioPlayer, createAudioResource, AudioPlayerStatus } = require('@discordjs/voice');
-const path = require('path');
+const { joinVoiceChannel } = require('@discordjs/voice');
 
 const client = new Client();
 
 client.on('ready', () => {
-    console.log(`تم تسجيل الدخول: ${client.user.tag}`);
+    console.log(`تم تسجيل الدخول بنجاح كـ ${client.user.tag}`);
+    
+    // تعريف الروم
     const channelId = '1496674843184074945';
 
-    const playNoise = () => {
+    // دالة الانضمام (لتبسيط الكود)
+    const joinVoice = () => {
         const channel = client.channels.cache.get(channelId);
-        if (!channel) return;
-
-        const connection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
-            selfDeaf: false,
-            selfMute: false // يجب أن تكون false ليظهر نشاط الصوت
-        });
-
-    const { StreamType } = require('@discordjs/voice'); // تأكد من إضافة هذا في الأعلى
-
-// ... داخل الدالة ...
-const resource = createAudioResource(path.join(__dirname, 'noise.opus'), {
-    inputType: StreamType.OggOpus, // هذا هو الجزء الذي يخبر البوت ألا يستخدم FFmpeg
-});
-
-player.play(resource);
-connection.subscribe(player);
-
-        // تكرار الصوت تلقائياً عند انتهائه
-        player.on(AudioPlayerStatus.Idle, () => {
-            player.play(resource);
-        });
+        if (channel) {
+            try {
+                joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guild.id,
+                    adapterCreator: channel.guild.voiceAdapterCreator,
+                    selfDeaf: false,
+                    selfMute: true
+                });
+                console.log("تم التأكد من الانضمام للروم!");
+            } catch (err) {
+                console.error("خطأ في الاتصال:", err);
+            }
+        }
     };
 
-    playNoise();
-    setInterval(playNoise, 60000); // للتأكد من بقاء البوت في الروم
+    // المحاولة الأولى عند التشغيل
+    joinVoice();
+
+    // المراقبة: إعادة الاتصال كل 30 ثانية إذا خرج البوت
+    setInterval(joinVoice, 30000); 
 });
 
 client.login(process.env.token);
