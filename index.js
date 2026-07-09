@@ -1,6 +1,6 @@
 const { Client } = require('discord.js-selfbot-v13');
 const client = new Client();
-const keep_alive = require('./keep_alive.js');
+const keep_alive = require('./keep_alive.js');//
 
 client.on('ready', () => {
     console.log(`تم تسجيل الدخول كـ ${client.user.tag}`);
