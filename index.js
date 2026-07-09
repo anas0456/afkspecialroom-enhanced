@@ -15,7 +15,7 @@ client.on('ready', async () => {
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
-                selfDeaf: true,
+                selfDeaf: false,
                 selfMute: true
             });
             console.log("تم الانضمام للروم بنجاح!");
