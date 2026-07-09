@@ -1,11 +1,17 @@
-const Eris = require("eris");
-const keep_alive = require('./keep_alive.js')
+const { Client } = require('discord.js-selfbot-v13');
+const client = new Client();
+const keep_alive = require('./keep_alive.js');
 
-// Replace TOKEN with your bot account's token
-const bot = new Eris(process.env.token);
-
-bot.on("error", (err) => {
-  console.error(err); // or your preferred logger
+client.on('ready', () => {
+    console.log(`تم تسجيل الدخول كـ ${client.user.tag}`);
+    
+    // هنا نحدد الروم الصوتي
+    const channel = client.channels.cache.get('1496674843184074945');
+    if (channel) {
+        channel.join().then(() => {
+            console.log("تم الانضمام للروم بنجاح!");
+        }).catch(err => console.log("خطأ في الانضمام: " + err));
+    }
 });
 
-bot.connect(); // Get the bot to connect to Discord
+client.login(process.env.token);
