@@ -1,11 +1,10 @@
 const { Client } = require('discord.js-selfbot-v13');
-const { joinVoiceChannel } = require('@discordjs/voice');
+const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice'); // أضفنا getVoiceConnection
 require('./keepalive.js');
 
 const client = new Client();
-
 const GUILD_ID = '1264561928034975775';
-const CREATE_CHANNEL_ID = '1496672686707966114'; 
+const CREATE_CHANNEL_ID = '1496672686707966114';
 
 client.on('ready', async () => {
     console.log(`تم التشغيل كـ ${client.user.tag}`);
@@ -14,6 +13,11 @@ client.on('ready', async () => {
         const guild = client.guilds.cache.get(GUILD_ID);
         if (!guild) return;
 
+        // 1. إغلاق أي اتصال صوتي قديم قبل بدء الجديد (لتجنب الكراش)
+        const oldConnection = getVoiceConnection(guild.id);
+        if (oldConnection) oldConnection.destroy();
+
+        // 2. الدخول لروم الإنشاء
         joinVoiceChannel({
             channelId: CREATE_CHANNEL_ID,
             guildId: guild.id,
@@ -28,9 +32,8 @@ client.on('ready', async () => {
             );
 
             if (myRoom) {
-                console.log(`تم العثور على الروم: ${myRoom.name}. البدء في الإرسال...`);
+                console.log(`تم العثور على الروم: ${myRoom.name}`);
                 
-                // الانتقال للروم
                 joinVoiceChannel({
                     channelId: myRoom.id,
                     guildId: guild.id,
@@ -39,16 +42,14 @@ client.on('ready', async () => {
                     selfDeaf: false
                 });
 
-                // إرسال الرسالة كل ثانيتين (2000 مللي ثانية)
+                // تأكد من وجود صلاحية قبل الإرسال
                 const intervalId = setInterval(() => {
-                    // التحقق من أن البوت لا يزال داخل الروم قبل الإرسال
-                    if (myRoom.members.has(client.user.id)) {
-                        myRoom.send("مرحبا كيفك اخي").catch(err => {
-                            console.log("توقف الإرسال: لا توجد صلاحية أو تم حذف الروم.");
-                            clearInterval(intervalId); // إيقاف التكرار إذا فشل الإرسال
-                        });
+                    // التحقق من الروم بشكل آمن
+                    const currentChannel = guild.channels.cache.get(myRoom.id);
+                    if (currentChannel && currentChannel.members.has(client.user.id)) {
+                        currentChannel.send("مرحبا كيفك اخي").catch(() => clearInterval(intervalId));
                     } else {
-                        clearInterval(intervalId); // إيقاف التكرار إذا خرج البوت من الروم
+                        clearInterval(intervalId);
                     }
                 }, 2000);
             }
@@ -56,7 +57,6 @@ client.on('ready', async () => {
     };
 
     handleRoom();
-    // إعادة فحص الروم كل دقيقة في حال تغير أو حدثت مشكلة
     setInterval(handleRoom, 60000); 
 });
 
