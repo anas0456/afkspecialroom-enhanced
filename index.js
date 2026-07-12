@@ -1,6 +1,6 @@
 const { Client } = require('discord.js-selfbot-v13');
 const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice'); // أضفنا getVoiceConnection
-require('./keepalive.js');
+require('./keep_alive.js');
 
 const client = new Client();
 const GUILD_ID = '1264561928034975775';
