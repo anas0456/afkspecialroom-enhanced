@@ -12,7 +12,7 @@ const WAR_CHANNEL_ID = '1505231949629882508';
 const EVENT_CHANNEL_ID = '1505231963919749193';
 const POINTS_CHANNEL_ID = '1503150255594799205';
 const DROP_BOT_ID = '1505226573400510464';
-const TARGET_USER = '<@abood042171>'; // تم تحديث اليوزر هنا
+const TARGET_USER = '@abood042171'; // تم تحديث اليوزر هنا
 
 let queue = [];
 let isProcessing = false;
