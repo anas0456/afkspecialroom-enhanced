@@ -14,9 +14,10 @@ const POINTS_CHANNEL_ID = '1503150255594799205';
 const DROP_BOT_ID = '1505226573400510464';
 const TARGET_USER = '<@1505231949629882508>';
 
-// نظام الطابور لمنع الباند
 let queue = [];
 let isProcessing = false;
+let lastDropWindowStart = 0; // بداية نافذة الـ 15 دقيقة الحالية
+let isWaitingForDrop = false; // هل نحن ننتظر الدروب الآن؟
 
 const processQueue = () => {
     if (isProcessing || queue.length === 0) return;
@@ -34,72 +35,73 @@ const addToQueue = (channel, content) => {
     processQueue();
 };
 
-// قفل لمنع التكرار لمدة 10 دقائق
-let lastProcessedTime = 0;
-
 client.on('ready', async () => {
     console.log(`تم التشغيل كـ ${client.user.tag}`);
     const guild = client.guilds.cache.get(GUILD_ID);
     if (guild) {
-        joinVoiceChannel({ 
-            channelId: AFK_CHANNEL_ID, 
-            guildId: guild.id, 
-            adapterCreator: guild.voiceAdapterCreator, 
-            selfMute: true, 
-            selfDeaf: false 
-        });
+        joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
     }
 
-    // المهام الاقتصادية
+    // تفعيل فوري للمهام
+    const econChan = client.channels.cache.get(ECON_CHANNEL_ID);
+    if (econChan) { addToQueue(econChan, "!جريمة"); addToQueue(econChan, "!عمل"); }
+    const warChan = client.channels.cache.get(WAR_CHANNEL_ID);
+    if (warChan) addToQueue(warChan, `!attack ${TARGET_USER}`);
+
     setInterval(() => {
         const chan = client.channels.cache.get(ECON_CHANNEL_ID);
         if (chan) { addToQueue(chan, "!جريمة"); addToQueue(chan, "!عمل"); }
     }, 3600000);
 
-    // الحرب
     setInterval(() => {
         const chan = client.channels.cache.get(WAR_CHANNEL_ID);
         if (chan) addToQueue(chan, `!attack ${TARGET_USER}`);
     }, 1200000);
 
-    // رسالة النقاط
     setInterval(() => {
         const chan = client.channels.cache.get(POINTS_CHANNEL_ID);
         if (chan) addToQueue(chan, "ياجماعه جمعو نقاط");
     }, 3000);
 });
 
-// الرقابة الدائمة للروم الصوتي
 client.on('voiceStateUpdate', (oldState, newState) => {
-    if (newState.id !== client.user.id) return;
-    if (newState.channelId !== AFK_CHANNEL_ID) {
-        const guild = newState.guild;
-        joinVoiceChannel({ 
-            channelId: AFK_CHANNEL_ID, 
-            guildId: guild.id, 
-            adapterCreator: guild.voiceAdapterCreator, 
-            selfMute: true, 
-            selfDeaf: false 
-        });
+    if (newState.id === client.user.id && newState.channelId !== AFK_CHANNEL_ID) {
+        joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: newState.guild.id, adapterCreator: newState.guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
     }
 });
 
-// مراقبة الدروب مع نظام القفل (10 دقائق)
 client.on('messageCreate', (msg) => {
-    const isDropBot = msg.author.id === DROP_BOT_ID;
-    const hasAttachment = msg.attachments.size > 0;
-    const timePassed = (Date.now() - lastProcessedTime) > 600000; // 10 دقائق
+    if (msg.channel.id !== EVENT_CHANNEL_ID) return;
 
-    if (msg.channel.id === EVENT_CHANNEL_ID && isDropBot && hasAttachment && timePassed) {
-        lastProcessedTime = Date.now(); // تحديث وقت آخر عملية
+    // 1. مراقبة "المنافسين" داخل نافذة الـ 15 دقيقة الحالية
+    if (isWaitingForDrop && msg.content.includes("!event join") && msg.author.id !== client.user.id) {
+        console.log("تم رصد شخص آخر يسبقني، سأنسحب من هذا الدروب.");
+        isWaitingForDrop = false; // إيقاف الانتظار للدروب الحالي
+        return;
+    }
 
-        addToQueue(msg.channel, "!event join");
-        setTimeout(() => addToQueue(msg.channel, "!event join"), 500);
-        
-        setTimeout(() => addToQueue(msg.channel, "!event claim"), 4000);
-        setTimeout(() => addToQueue(msg.channel, "!event claim"), 4500);
-        
-        console.log(`تم رصد دروب، وسأتجاهل أي صور أخرى لمدة 10 دقائق.`);
+    // 2. كشف الدروب الجديد
+    if (msg.author.id === DROP_BOT_ID && (msg.attachments.size > 0 || msg.embeds.length > 0)) {
+        const now = Date.now();
+        // التحقق أننا خارج فترة الـ 15 دقيقة السابقة
+        if ((now - lastDropWindowStart) > 900000) { 
+            lastDropWindowStart = now;
+            isWaitingForDrop = true;
+
+            console.log("دروب جديد تم رصده، جاري المراقبة...");
+
+            // انتظر 3 ثواني للتأكد من عدم تدخل أحد
+            setTimeout(() => {
+                if (!isWaitingForDrop) return; // تم الإلغاء بواسطة مراقبة المنافسين
+
+                addToQueue(msg.channel, "!event join");
+                setTimeout(() => addToQueue(msg.channel, "!event join"), 500);
+                setTimeout(() => addToQueue(msg.channel, "!event claim"), 4000);
+                setTimeout(() => addToQueue(msg.channel, "!event claim"), 4500);
+                
+                isWaitingForDrop = false; // تم التنفيذ، نخرج من حالة الانتظار
+            }, 3000);
+        }
     }
 });
 
