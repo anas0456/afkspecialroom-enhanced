@@ -1,62 +1,73 @@
+require('./keep_alive.js');
 const { Client } = require('discord.js-selfbot-v13');
 const { joinVoiceChannel } = require('@discordjs/voice');
-// تم تصحيح الاسم هنا مع الشخطة السفلية
-require('./keep_alive.js'); 
 
 const client = new Client();
+
+// الإعدادات
 const GUILD_ID = '1264561928034975775';
-const CREATE_CHANNEL_ID = '1496672686707966114';
+const AFK_CHANNEL_ID = '1496674424693325844';
+const ECON_CHANNEL_ID = '1505231947574546472';
+const WAR_CHANNEL_ID = '1505231949629882508';
+const EVENT_CHANNEL_ID = '1505231963919749193';
+const POINTS_CHANNEL_ID = '1503150255594799205';
+const DROP_BOT_ID = '1505226573400510464';
+const TARGET_USER = '<@1505231949629882508>';
+
+// نظام الطابور لمنع الباند
+let queue = [];
+let isProcessing = false;
+
+const processQueue = () => {
+    if (isProcessing || queue.length === 0) return;
+    isProcessing = true;
+    const task = queue.shift();
+    task.channel.send(task.content).catch(() => {});
+    setTimeout(() => {
+        isProcessing = false;
+        processQueue();
+    }, 3500); // 3.5 ثانية بين كل رسالة ورسالة
+};
+
+const addToQueue = (channel, content) => {
+    queue.push({ channel, content });
+    processQueue();
+};
 
 client.on('ready', async () => {
     console.log(`تم التشغيل كـ ${client.user.tag}`);
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (guild) {
+        joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
+    }
 
-    const moveToMyRoom = async () => {
-        const guild = client.guilds.cache.get(GUILD_ID);
-        if (!guild) return;
+    // المهام الاقتصادية
+    setInterval(() => {
+        const chan = client.channels.cache.get(ECON_CHANNEL_ID);
+        if (chan) { addToQueue(chan, "!جريمة"); addToQueue(chan, "!عمل"); }
+    }, 3600000);
 
-        // الدخول لروم الإنشاء
-        joinVoiceChannel({
-            channelId: CREATE_CHANNEL_ID,
-            guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
-            selfMute: true,
-            selfDeaf: false
-        });
+    // الحرب (كل 20 دقيقة)
+    setInterval(() => {
+        const chan = client.channels.cache.get(WAR_CHANNEL_ID);
+        if (chan) addToQueue(chan, `!attack ${TARGET_USER}`);
+    }, 1200000);
 
-        setTimeout(() => {
-            // البحث عن الروم الجديد (الذي أنت موجود فيه فعلياً)
-            const myRoom = guild.channels.cache.find(c => 
-                c.type === 2 && 
-                c.members.has(client.user.id) && 
-                c.id !== CREATE_CHANNEL_ID
-            );
+    // رسالة النقاط (كل 3 ثواني - داخل الطابور لتجنب الباند)
+    setInterval(() => {
+        const chan = client.channels.cache.get(POINTS_CHANNEL_ID);
+        if (chan) addToQueue(chan, "ياجماعه جمعو نقاط");
+    }, 3000);
+});
 
-            if (myRoom) {
-                console.log(`تم الانتقال للروم: ${myRoom.name}`);
-                
-                // الانتقال للروم الجديد
-                joinVoiceChannel({
-                    channelId: myRoom.id,
-                    guildId: guild.id,
-                    adapterCreator: guild.voiceAdapterCreator,
-                    selfMute: true,
-                    selfDeaf: false
-                });
-
-                // الإرسال كل ثانيتين
-                const intervalId = setInterval(() => {
-                    if (myRoom.members.has(client.user.id)) {
-                        myRoom.send("مرحبا كيفك اخي").catch(() => clearInterval(intervalId));
-                    } else {
-                        clearInterval(intervalId);
-                    }
-                }, 2000);
-            }
-        }, 5000);
-    };
-
-    moveToMyRoom();
-    setInterval(moveToMyRoom, 60000);
+// مراقبة الدروب
+client.on('messageCreate', (msg) => {
+    if (msg.channel.id === EVENT_CHANNEL_ID && msg.author.id === DROP_BOT_ID && msg.attachments.size > 0) {
+        addToQueue(msg.channel, "!event join");
+        setTimeout(() => addToQueue(msg.channel, "!event join"), 500);
+        setTimeout(() => addToQueue(msg.channel, "!event claim"), 4000);
+        setTimeout(() => addToQueue(msg.channel, "!event claim"), 4500);
+    }
 });
 
 client.login(process.env.token);
