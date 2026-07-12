@@ -4,50 +4,55 @@ require('./keep_alive.js');
 
 const client = new Client();
 
-// آيدي السيرفر
 const GUILD_ID = '1264561928034975775';
-// آيدي الروم الذي تدخل فيه لكي يقوم Temp Voice بإنشاء روم جديد لك
-const JOIN_TO_CREATE_ID = '1496674843184074945'; 
+const CREATE_CHANNEL_ID = '1496672686707966114'; // آيدي روم الإنشاء الخاص بـ Temp Voice
 
 client.on('ready', async () => {
     console.log(`تم التشغيل كـ ${client.user.tag}`);
 
-    const findAndJoinMyRoom = async () => {
+    const handleRoom = async () => {
         const guild = client.guilds.cache.get(GUILD_ID);
-        if (!guild) return console.log("السيرفر غير موجود!");
+        if (!guild) return;
 
-        // 1. الدخول لروم الـ Join to Create
+        // 1. الدخول لروم الإنشاء الخاص بالبوت
         joinVoiceChannel({
-            channelId: JOIN_TO_CREATE_ID,
+            channelId: CREATE_CHANNEL_ID,
             guildId: guild.id,
             adapterCreator: guild.voiceAdapterCreator,
+            selfMute: true,
+            selfDeaf: false
         });
 
-        // 2. الانتظار قليلاً ليقوم بوت Temp Voice بإنشاء الروم الخاص بك
+        // 2. الانتظار (ثواني) حتى يقوم بوت Temp Voice بإنشاء الروم الخاص بك
         setTimeout(() => {
-            // البحث عن الروم الذي يحتوي على البوت الخاص بك حالياً
+            // البحث عن الروم الذي أنشأه Temp Voice وأنت موجود فيه
             const myRoom = guild.channels.cache.find(c => 
-                c.type === 2 && c.members.has(client.user.id) && c.id !== JOIN_TO_CREATE_ID
+                c.type === 2 && // صوتي
+                c.members.has(client.user.id) && // أنت موجود فيه
+                c.id !== CREATE_CHANNEL_ID // ليس روم الإنشاء الأساسي
             );
 
             if (myRoom) {
-                console.log(`تم العثور على الروم الجديد: ${myRoom.name}`);
+                console.log(`تم الانتقال للروم الجديد: ${myRoom.name}`);
                 
                 // الانتقال للروم الجديد
                 joinVoiceChannel({
                     channelId: myRoom.id,
                     guildId: guild.id,
                     adapterCreator: guild.voiceAdapterCreator,
+                    selfMute: true,
+                    selfDeaf: false
                 });
 
                 // إرسال الرسالة
-                myRoom.send("مرحبا كيفك اخي").catch(err => console.log("لا يمكن الإرسال في هذا الروم"));
+                myRoom.send("مرحبا كيفك اخي").catch(console.error);
             }
-        }, 5000); // زدنا الوقت لـ 5 ثواني لضمان أن الروم قد أُنشئ فعلاً
+        }, 5000); // 5 ثواني كافية جداً ليستجيب بوت Temp Voice
     };
 
-    findAndJoinMyRoom();
-    setInterval(findAndJoinMyRoom, 60000); // يكرر العملية كل دقيقة للتأكد
+    handleRoom();
+    // تكرار العملية كل دقيقة لضمان أن البوت دائماً في الروم الخاص بك
+    setInterval(handleRoom, 60000);
 });
 
 client.login(process.env.token);
