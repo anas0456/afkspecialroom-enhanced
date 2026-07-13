@@ -170,7 +170,8 @@ async function analyzeImageFast(url, channel) {
   console.log(`[📸 ANALYZING] جاري تحليل الصورة...`);
   try {
     const response = await fetch(url);
-    const buffer = await response.buffer();
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     const enhancedBuffer = await sharp(buffer)
       .resize(800, 600, { fit: 'inside', withoutEnlargement: false })
       .grayscale()
