@@ -1,6 +1,6 @@
 {
-  "name": "discord-auto-voice",
-  "version": "1.0.0",
+  "name": "discord-aff-bot-enhanced",
+  "version": "2.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
