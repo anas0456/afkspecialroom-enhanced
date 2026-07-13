@@ -102,33 +102,43 @@ setInterval(() => {
 }, 5000);
 
 // ============ Queue المحسّنة ============
+// ============ Queue المحسّنة (المعدلة) ============
 class EnhancedQueue {
   constructor() {
     this.queue = [];
     this.isProcessing = false;
   }
+  
   addTask(task) {
     this.queue.push(task);
     this.process();
   }
+
   async process() {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
+    
     while (this.queue.length > 0) {
       const task = this.queue.shift();
+      
+      // التوقف عند السبام أو إيقاف مؤقت
       if (isPaused && task.priority !== 'HIGH') {
         this.queue.unshift(task);
         break;
       }
+      
       try {
-        task.channel.send(task.content).catch(() => {});
+        await task.channel.send(task.content);
         messageCountLastMinute++;
         console.log(`[✓ SENT] ${task.priority} - "${task.content.substring(0, 40)}..."`);
       } catch (e) {
         console.error(`[✗ ERROR] Failed to send: ${e.message}`);
       }
-      const delay = 2000 + Math.random() * 1000;
-      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // هنا السر: تأخير عشوائي بين كل رسالة وأخرى (بين 3 إلى 6 ثواني)
+      const randomDelay = 3000 + Math.random() * 3000;
+      await new Promise(resolve => setTimeout(resolve, randomDelay));
+      
       checkRateLimit();
     }
     this.isProcessing = false;
