@@ -266,20 +266,29 @@ client.on('ready', async () => {
 });
 
 client.on('messageCreate', (msg) => {
+  // التحقق أولاً: هل الرسالة في السيرفر المطلوب؟
+  if (!msg.guild || msg.guild.id !== GUILD_ID) return;
+
+  // معالجة الصور (بشرط أن تكون في القنوات المحددة)
   if (msg.attachments.size > 0) {
-    const url = msg.attachments.first().url;
-    console.log(`[📷 IMAGE DETECTED] من القناة: ${msg.channel.name} | من: ${msg.author.username}`);
     if ([ECON_CHANNEL_ID, WAR_CHANNEL_ID, EVENT_CHANNEL_ID].includes(msg.channel.id)) {
+      const url = msg.attachments.first().url;
+      console.log(`[📷 IMAGE DETECTED] من القناة: ${msg.channel.name} | من: ${msg.author.username}`);
       analyzeImageFast(url, msg.channel);
     }
   }
+
+  // منطق الـ Drop (في قناة الأحداث فقط)
   if (msg.channel.id === EVENT_CHANNEL_ID) {
+    // رصد الدروب من البوت
     if (msg.author.id === DROP_BOT_ID && msg.attachments.size > 0) {
       const now = Date.now();
       if ((now - lastDropWindowStart) > 900000) {
         analyzeImageFast(msg.attachments.first().url, msg.channel);
       }
     }
+    
+    // رصد المنافسين
     if (lastDropWindowStart > 0 && (Date.now() - lastDropWindowStart) < 60000) {
       if (msg.content.includes('!event join') && msg.author.id !== client.user.id) {
         console.log(`[👥 COMPETITOR] تم رصد منافس، انسحاب...`);
