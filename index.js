@@ -2,6 +2,7 @@ require('./keep_alive.js');
 const { Client } = require('discord.js-selfbot-v13');
 const { joinVoiceChannel } = require('@discordjs/voice');
 const Tesseract = require('tesseract.js');
+const sharp = require('sharp');
 
 const client = new Client();
 
@@ -24,8 +25,8 @@ let isCheckingImage = false;
 let lastDropWindowStart = 0;
 let messageCountLastMinute = 0;
 let lastMinuteReset = Date.now();
+let scheduledCommands = [];
 
-// رسائل عشوائية
 const dynamicMessages = [
   "ياجماعه جمعو نقاط 💰",
   "لاتنسوا جمع النقاط 🎯",
@@ -37,32 +38,88 @@ const dynamicMessages = [
   "نقاط جديدة بتنزل 🚀",
 ];
 
-// ============ نظام الـ Queue المحسّن ============
+// ============ استخراج الأوقات ============
+function extractWaitTime(text) {
+  if (!text) return null;
+  const patterns = [
+    /انتظر\s+(\d+)\s+دقيقة/i,
+    /wait\s+(\d+)\s+minutes?/i,
+    /انتظر\s+(\d+)\s+ساعة/i,
+    /wait\s+(\d+)\s+hours?/i,
+    /قبل\s+(\d+)\s+دقيقة/i,
+    /in\s+(\d+)\s+minutes?/i,
+    /(\d+)\s+دقائق/i,
+    /(\d+)\s+minutes?/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      let minutes = parseInt(match[1]);
+      if (pattern.toString().includes('ساعة') || pattern.toString().includes('hours?')) {
+        minutes = minutes * 60;
+      }
+      return minutes * 60 * 1000;
+    }
+  }
+  return null;
+}
+
+// ============ الأوامر المجدولة ============
+class ScheduledCommand {
+  constructor(channel, command, delayMs, reason) {
+    this.channel = channel;
+    this.command = command;
+    this.executeAt = Date.now() + delayMs;
+    this.delayMs = delayMs;
+    this.reason = reason;
+    this.id = Date.now() + Math.random();
+    const delayMin = Math.round(delayMs / 60000);
+    const executeTime = new Date(this.executeAt).toLocaleString('ar-SA');
+    console.log(`[⏱ WAIT] ${reason} | الانتظار: ${delayMin} دقيقة | التنفيذ في: ${executeTime}`);
+  }
+  isReady() {
+    return Date.now() >= this.executeAt;
+  }
+  async execute() {
+    try {
+      await this.channel.send(this.command);
+      const delayMin = Math.round(this.delayMs / 60000);
+      console.log(`[✅ EXECUTE] ${this.reason} | تم التنفيذ بعد ${delayMin} دقيقة | الأمر: "${this.command}"`);
+    } catch (e) {
+      console.error(`[✗ EXECUTE ERROR] فشل التنفيذ: ${e.message}`);
+    }
+  }
+}
+
+setInterval(() => {
+  scheduledCommands = scheduledCommands.filter(cmd => {
+    if (cmd.isReady()) {
+      cmd.execute();
+      return false;
+    }
+    return true;
+  });
+}, 5000);
+
+// ============ Queue المحسّنة ============
 class EnhancedQueue {
   constructor() {
     this.queue = [];
     this.isProcessing = false;
   }
-
   addTask(task) {
     this.queue.push(task);
     this.process();
   }
-
   async process() {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
-
     while (this.queue.length > 0) {
       const task = this.queue.shift();
-
-      // إذا الـ pause مفعل وليست أولويات عالية، تجاهل
       if (isPaused && task.priority !== 'HIGH') {
-        this.queue.unshift(task); // رجعها للطابور
+        this.queue.unshift(task);
         break;
       }
-
-      // تنفيذ المهمة
       try {
         task.channel.send(task.content).catch(() => {});
         messageCountLastMinute++;
@@ -70,42 +127,33 @@ class EnhancedQueue {
       } catch (e) {
         console.error(`[✗ ERROR] Failed to send: ${e.message}`);
       }
-
-      // تأخير ذكي (2-3 ثواني)
       const delay = 2000 + Math.random() * 1000;
       await new Promise(resolve => setTimeout(resolve, delay));
-
-      // مراقبة Rate Limit
       checkRateLimit();
     }
-
     this.isProcessing = false;
   }
 }
 
 const queue = new EnhancedQueue();
 
-// ============ مراقبة Rate Limit ============
 function checkRateLimit() {
   const now = Date.now();
   if (now - lastMinuteReset > 60000) {
     messageCountLastMinute = 0;
     lastMinuteReset = now;
   }
-
   if (messageCountLastMinute > 45) {
     console.warn(`[⚠ RATE LIMIT] ${messageCountLastMinute} رسائل في الدقيقة! تأخير إضافي...`);
     isPaused = true;
-    pauseUntil = Date.now() + 10000; // pause 10 ثواني
+    pauseUntil = Date.now() + 10000;
   }
 }
 
-// ============ نظام Pause الذكي ============
 function pauseTemporarily(duration, reason) {
   isPaused = true;
   pauseUntil = Date.now() + duration;
   console.log(`[⏸ PAUSE] ${reason} لمدة ${duration / 1000} ثانية`);
-
   const interval = setInterval(() => {
     if (Date.now() >= pauseUntil) {
       isPaused = false;
@@ -115,39 +163,47 @@ function pauseTemporarily(duration, reason) {
   }, 1000);
 }
 
-// ============ تحليل الصور الذكي ============
-async function analyzeDropImage(url, channel) {
+// ============ تحليل الصور ============
+async function analyzeImageFast(url, channel) {
   if (isCheckingImage) return;
   isCheckingImage = true;
-
   console.log(`[📸 ANALYZING] جاري تحليل الصورة...`);
-
   try {
-    const { data: { text, confidence } } = await Tesseract.recognize(url, 'ara');
+    const response = await fetch(url);
+    const buffer = await response.buffer();
+    const enhancedBuffer = await sharp(buffer)
+      .resize(800, 600, { fit: 'inside', withoutEnlargement: false })
+      .grayscale()
+      .sharpen()
+      .toBuffer();
+    const { data: { text, confidence } } = await Tesseract.recognize(enhancedBuffer, ['ara', 'eng']);
     console.log(`[📝 TEXT] "${text}"`);
     console.log(`[📊 CONFIDENCE] ${(confidence * 100).toFixed(2)}%`);
-
-    // معايير الكشف الذكية
+    const waitTime = extractWaitTime(text);
+    let commandType = null;
+    if (text.includes('جريمة') || text.includes('crime')) commandType = '!جريمة';
+    else if (text.includes('عمل') || text.includes('work')) commandType = '!عمل';
+    else if (text.includes('هجوم') || text.includes('attack')) commandType = `!attack ${TARGET_USER}`;
+    if (waitTime && commandType) {
+      console.log(`[⏱ DETECTED] وقت انتظار: ${Math.round(waitTime / 60000)} دقيقة | الأمر: ${commandType}`);
+      const reason = commandType === '!جريمة' ? 'جريمة' : commandType === '!عمل' ? 'عمل' : 'هجوم';
+      const scheduled = new ScheduledCommand(channel, commandType, waitTime, reason);
+      scheduledCommands.push(scheduled);
+      pauseTemporarily(Math.min(waitTime / 2, 30000), `انتظار ${reason}`);
+    }
     const hasDropKeyword = text.includes('دروب') || text.includes('drop');
     const noConfirmationKeyword = !text.includes('نجاح') && !text.includes('جمع') && !text.includes('claim');
     const hasReasonableLength = text.length > 5 && text.length < 200;
     const highConfidence = confidence > 0.6;
-
     const isRealDrop = hasDropKeyword && noConfirmationKeyword && hasReasonableLength && highConfidence;
-
     if (isRealDrop) {
       console.log(`[✅ REAL DROP] تم التحقق! تنفيذ الأوامر...`);
-      
-      // إضافة أوامر الدروب بأولوية عالية
       queue.addTask({ channel, content: '!event join', priority: 'HIGH' });
       setTimeout(() => queue.addTask({ channel, content: '!event join', priority: 'HIGH' }), 500);
       setTimeout(() => queue.addTask({ channel, content: '!event claim', priority: 'HIGH' }), 3000);
       setTimeout(() => queue.addTask({ channel, content: '!event claim', priority: 'HIGH' }), 3500);
-
       lastDropWindowStart = Date.now();
       pauseTemporarily(90000, 'كشف دروب حقيقي');
-    } else {
-      console.log(`[❌ FALSE ALARM] صورة تأكيد أو خاطئة، تجاهل`);
     }
   } catch (e) {
     console.error(`[✗ ANALYSIS ERROR] ${e.message}`);
@@ -156,13 +212,11 @@ async function analyzeDropImage(url, channel) {
   }
 }
 
-// ============ أحداث البوت ============
 client.on('ready', async () => {
-  console.log(`\n${'='.repeat(50)}`);
+  console.log(`\n${'='.repeat(60)}`);
   console.log(`✅ البوت مشغّل: ${client.user.tag}`);
-  console.log(`${'='.repeat(50)}\n`);
-
-  // الانضمام للروم الصوتي
+  console.log(`🚀 النسخة: 2.0 - محسّنة مع نظام الانتظار الذكي`);
+  console.log(`${'='.repeat(60)}\n`);
   const guild = client.guilds.cache.get(GUILD_ID);
   if (guild) {
     try {
@@ -173,25 +227,20 @@ client.on('ready', async () => {
         selfMute: true,
         selfDeaf: false
       });
-      console.log(`🔊 انضممت للروم الصوتي`);
+      console.log(`🔊 انضممت للروم الصوتي\n`);
     } catch (e) {
       console.error(`[✗] خطأ في الانضمام للروم: ${e.message}`);
     }
   }
-
-  // أوامر البداية
   const econChan = client.channels.cache.get(ECON_CHANNEL_ID);
   if (econChan) {
     queue.addTask({ channel: econChan, content: '!جريمة', priority: 'MEDIUM' });
     queue.addTask({ channel: econChan, content: '!عمل', priority: 'MEDIUM' });
   }
-
   const warChan = client.channels.cache.get(WAR_CHANNEL_ID);
   if (warChan) {
     queue.addTask({ channel: warChan, content: `!attack ${TARGET_USER}`, priority: 'MEDIUM' });
   }
-
-  // تكرار الأوامر كل ساعة (اقتصاد)
   setInterval(() => {
     const chan = client.channels.cache.get(ECON_CHANNEL_ID);
     if (chan && !isPaused) {
@@ -199,8 +248,6 @@ client.on('ready', async () => {
       queue.addTask({ channel: chan, content: '!عمل', priority: 'MEDIUM' });
     }
   }, 3600000);
-
-  // تكرار الهجوم كل 20 دقيقة
   setInterval(() => {
     const chan = client.channels.cache.get(WAR_CHANNEL_ID);
     if (chan && !isPaused) {
@@ -208,8 +255,6 @@ client.on('ready', async () => {
       pauseTemporarily(45000, 'تنفيذ هجوم');
     }
   }, 1200000);
-
-  // رسائل جمع النقاط العشوائية (كل 5 ثواني)
   setInterval(() => {
     const chan = client.channels.cache.get(POINTS_CHANNEL_ID);
     if (chan && !isPaused) {
@@ -219,30 +264,31 @@ client.on('ready', async () => {
   }, 5000);
 });
 
-// ============ معالجة الرسائل الواردة ============
 client.on('messageCreate', (msg) => {
-  if (msg.channel.id !== EVENT_CHANNEL_ID) return;
-
-  // كشف الدروبات
-  if (msg.author.id === DROP_BOT_ID && msg.attachments.size > 0) {
-    const now = Date.now();
-    if ((now - lastDropWindowStart) > 900000) {
-      analyzeDropImage(msg.attachments.first().url, msg.channel);
+  if (msg.attachments.size > 0) {
+    const url = msg.attachments.first().url;
+    console.log(`[📷 IMAGE DETECTED] من القناة: ${msg.channel.name} | من: ${msg.author.username}`);
+    if ([ECON_CHANNEL_ID, WAR_CHANNEL_ID, EVENT_CHANNEL_ID].includes(msg.channel.id)) {
+      analyzeImageFast(url, msg.channel);
     }
   }
-
-  // كشف المنافسين
-  if (lastDropWindowStart > 0 && (Date.now() - lastDropWindowStart) < 60000) {
-    if (msg.content.includes('!event join') && msg.author.id !== client.user.id) {
-      console.log(`[👥 COMPETITOR] تم رصد منافس، انسحاب...`);
-      lastDropWindowStart = 0;
+  if (msg.channel.id === EVENT_CHANNEL_ID) {
+    if (msg.author.id === DROP_BOT_ID && msg.attachments.size > 0) {
+      const now = Date.now();
+      if ((now - lastDropWindowStart) > 900000) {
+        analyzeImageFast(msg.attachments.first().url, msg.channel);
+      }
+    }
+    if (lastDropWindowStart > 0 && (Date.now() - lastDropWindowStart) < 60000) {
+      if (msg.content.includes('!event join') && msg.author.id !== client.user.id) {
+        console.log(`[👥 COMPETITOR] تم رصد منافس، انسحاب...`);
+        lastDropWindowStart = 0;
+      }
     }
   }
 });
 
-// ============ معالجة الأخطاء ============
 client.on('error', (e) => console.error(`[✗ CLIENT ERROR] ${e.message}`));
 process.on('unhandledRejection', (e) => console.error(`[✗ REJECTION] ${e.message}`));
 
-// ============ تسجيل الدخول ============
 client.login(process.env.token);
