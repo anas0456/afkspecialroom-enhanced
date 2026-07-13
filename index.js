@@ -22,6 +22,23 @@ const CHANNELS = {
 let isCheckingImage = false;
 let lastDropWindowStart = 0;
 
+// --- دالة تنفيذ المهام المباشرة ---
+function startTasks() {
+    console.log("🚀 تشغيل المهام التلقائية فوراً...");
+    
+    // تنفيذ مهام الاقتصاد
+    const econ = client.channels.cache.get(CHANNELS.ECON);
+    if (econ) { econ.send("!جريمة"); setTimeout(() => econ.send("!عمل"), 2000); }
+    
+    // تنفيذ مهام الحرب
+    const war = client.channels.cache.get(CHANNELS.WAR);
+    if (war) war.send(`!attack ${TARGET_USER}`);
+    
+    // تنفيذ مهام النقاط
+    const points = client.channels.cache.get(CHANNELS.POINTS);
+    if (points) points.send("ياجماعه جمعو نقاط");
+}
+
 async function analyzeImageFast(url, channel) {
     if (isCheckingImage) return;
     isCheckingImage = true;
@@ -30,50 +47,34 @@ async function analyzeImageFast(url, channel) {
         const buffer = await response.buffer();
         const { data: { text } } = await Tesseract.recognize(buffer, 'ara+eng');
         
-        // --- الـ LOG الجديد ---
-        console.log(`[🔍 ANALYZING] في قناة ${channel.name} | النص المكتشف: "${text.substring(0, 50)}..."`);
+        console.log(`[🔍] فحص صورة في ${channel.name}: "${text.substring(0, 30)}..."`);
         
         const isRealDrop = (text.includes("دروب") || text.includes("drop")) && !text.includes("نجاح") && !text.includes("تمت");
         
         if (isRealDrop && (Date.now() - lastDropWindowStart) > 900000) {
-            console.log(`[🔥] دروب حقيقي! جاري الانضمام...`);
+            console.log(`[🔥] دروب حقيقي! جاري التنفيذ...`);
             channel.send("!event join");
             setTimeout(() => channel.send("!event join"), 500);
             setTimeout(() => channel.send("!event claim"), 4000);
             lastDropWindowStart = Date.now();
-        } else {
-            console.log(`[ℹ️] تم تجاهل الصورة (ليست دروب حقيقي).`);
         }
-    } catch (e) { console.error(`[❌ ERROR] ${e.message}`); } finally { isCheckingImage = false; }
+    } catch (e) { console.error(`[❌] خطأ تحليل: ${e.message}`); } finally { isCheckingImage = false; }
 }
 
 client.on('ready', () => {
-    console.log(`✅ البوت متصل كـ ${client.user.tag}`);
+    console.log(`✅ البوت متصل: ${client.user.tag}`);
     const guild = client.guilds.cache.get(GUILD_ID);
     if (guild) joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
 
-    // تفعيل المهام الدورية (تم التأكد من صحة الآيديات)
-    setInterval(() => {
-        const econ = client.channels.cache.get(CHANNELS.ECON);
-        if (econ) { econ.send("!جريمة"); setTimeout(() => econ.send("!عمل"), 2000); }
-    }, 3600000);
+    // 1. تشغيل المهام فوراً عند العمل
+    startTasks();
 
-    setInterval(() => {
-        const war = client.channels.cache.get(CHANNELS.WAR);
-        if (war) war.send(`!attack ${TARGET_USER}`);
-    }, 1200000);
-
-    setInterval(() => {
-        const points = client.channels.cache.get(CHANNELS.POINTS);
-        if (points) points.send("ياجماعه جمعو نقاط");
-    }, 300000);
+    // 2. تشغيل المهام بشكل دوري
+    setInterval(startTasks, 3600000); // المهام تتكرر كل ساعة
 });
 
 client.on('messageCreate', (msg) => {
-    // التأكد أن الرسالة في إحدى القنوات المسموحة
     if (!Object.values(CHANNELS).includes(msg.channel.id)) return;
-    
-    // معالجة الصور
     if (msg.attachments.size > 0 && msg.author.id === DROP_BOT_ID && msg.channel.id === CHANNELS.EVENT) {
         analyzeImageFast(msg.attachments.first().url, msg.channel);
     }
