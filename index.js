@@ -1,6 +1,8 @@
 require('./keep_alive.js');
 const { Client } = require('discord.js-selfbot-v13');
 const { joinVoiceChannel } = require('@discordjs/voice');
+const Tesseract = require('tesseract.js');
+const https = require('https');
 
 const client = new Client();
 
@@ -12,12 +14,12 @@ const WAR_CHANNEL_ID = '1505231949629882508';
 const EVENT_CHANNEL_ID = '1505231963919749193';
 const POINTS_CHANNEL_ID = '1503150255594799205';
 const DROP_BOT_ID = '1505226573400510464';
-const TARGET_USER = '<@1507052275753947157>'; // تم تحديث اليوزر هنا
+const TARGET_USER = '<@1505231949629882508>'; // ضع الآيدي الرقمي هنا
 
 let queue = [];
 let isProcessing = false;
-let lastDropWindowStart = 0; 
-let isWaitingForDrop = false; 
+let lastDropWindowStart = 0;
+let isCheckingImage = false;
 
 const processQueue = () => {
     if (isProcessing || queue.length === 0) return;
@@ -35,6 +37,35 @@ const addToQueue = (channel, content) => {
     processQueue();
 };
 
+const checkDropImage = async (url, channel) => {
+    if (isCheckingImage) return;
+    isCheckingImage = true;
+    console.log("تم رصد صورة، جاري تحليل المحتوى...");
+
+    try {
+        const { data: { text } } = await Tesseract.recognize(url, 'ara');
+        console.log("النص المكتشف:", text);
+
+        // شرط ذكي: وجود "دروب" وعدم وجود "نجاح" أو "جمع"
+        const isActualDrop = text.includes("دروب") && !text.includes("نجاح") && !text.includes("جمع");
+
+        if (isActualDrop) {
+            console.log("✅ دروب حقيقي تم التحقق منه، تنفيذ الأوامر...");
+            addToQueue(channel, "!event join");
+            setTimeout(() => addToQueue(channel, "!event join"), 500);
+            setTimeout(() => addToQueue(channel, "!event claim"), 4000);
+            setTimeout(() => addToQueue(channel, "!event claim"), 4500);
+            lastDropWindowStart = Date.now();
+        } else {
+            console.log("❌ هذه صورة تأكيد، تجاهل.");
+        }
+    } catch (e) {
+        console.error("خطأ تحليل الصورة:", e);
+    } finally {
+        isCheckingImage = false;
+    }
+};
+
 client.on('ready', async () => {
     console.log(`تم التشغيل كـ ${client.user.tag}`);
     const guild = client.guilds.cache.get(GUILD_ID);
@@ -42,7 +73,6 @@ client.on('ready', async () => {
         joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
     }
 
-    // تفعيل فوري للمهام
     const econChan = client.channels.cache.get(ECON_CHANNEL_ID);
     if (econChan) { addToQueue(econChan, "!جريمة"); addToQueue(econChan, "!عمل"); }
     const warChan = client.channels.cache.get(WAR_CHANNEL_ID);
@@ -64,39 +94,20 @@ client.on('ready', async () => {
     }, 3000);
 });
 
-client.on('voiceStateUpdate', (oldState, newState) => {
-    if (newState.id === client.user.id && newState.channelId !== AFK_CHANNEL_ID) {
-        joinVoiceChannel({ channelId: AFK_CHANNEL_ID, guildId: newState.guild.id, adapterCreator: newState.guild.voiceAdapterCreator, selfMute: true, selfDeaf: false });
-    }
-});
-
 client.on('messageCreate', (msg) => {
     if (msg.channel.id !== EVENT_CHANNEL_ID) return;
 
-    // مراقبة المنافسين
-    if (isWaitingForDrop && msg.content.includes("!event join") && msg.author.id !== client.user.id) {
-        console.log("تم رصد شخص آخر يسبقني، سأنسحب.");
-        isWaitingForDrop = false; 
-        return;
-    }
-
-    // كشف الدروب
-    if (msg.author.id === DROP_BOT_ID && (msg.attachments.size > 0 || msg.embeds.length > 0)) {
+    if (msg.author.id === DROP_BOT_ID && msg.attachments.size > 0) {
         const now = Date.now();
         if ((now - lastDropWindowStart) > 900000) { 
-            lastDropWindowStart = now;
-            isWaitingForDrop = true;
+            checkDropImage(msg.attachments.first().url, msg.channel);
+        }
+    }
 
-            setTimeout(() => {
-                if (!isWaitingForDrop) return; 
-
-                addToQueue(msg.channel, "!event join");
-                setTimeout(() => addToQueue(msg.channel, "!event join"), 500);
-                setTimeout(() => addToQueue(msg.channel, "!event claim"), 4000);
-                setTimeout(() => addToQueue(msg.channel, "!event claim"), 4500);
-                
-                isWaitingForDrop = false; 
-            }, 3000);
+    if (lastDropWindowStart > 0 && (Date.now() - lastDropWindowStart) < 60000) {
+        if (msg.content.includes("!event join") && msg.author.id !== client.user.id) {
+            console.log("تم رصد منافس، انسحاب.");
+            lastDropWindowStart = 0;
         }
     }
 });
